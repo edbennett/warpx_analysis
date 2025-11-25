@@ -2,6 +2,7 @@
 
 from argparse import ArgumentParser
 import contextlib
+import collections
 
 import h5py
 import matplotlib.pyplot as plt
@@ -20,13 +21,47 @@ ORIGIN = (0, 0)
 INNER_CIRCLE_POSITION = (0.04, 0)
 
 
+ResultTuple = collections.namedtuple(
+    "ResultTuple",
+    [
+        "time",
+        "max_rho_x",
+        "max_rho_y",
+        "centroid_x",
+        "centroid_y",
+        "radial_mean",
+        "radial_std",
+        "max_planar_rho",
+        "mean_planar_rho",
+        "constrained_radial_mean",
+    ],
+)
+
+
 def get_args():
     parser = ArgumentParser(description="Analyse WarpX output without Mathematica")
     parser.add_argument(
         "input_files", nargs="+", metavar="input_file", help="HDF5 filename"
     )
     parser.add_argument(
-        "--plot_filename", default=None, help="Where to output plots of density slices"
+        "--frame_plots_filename",
+        default=None,
+        help="Where to output plots of density slices",
+    )
+    parser.add_argument(
+        "--position_plot_filename",
+        default=None,
+        help="Where to output plot of the plasma position",
+    )
+    parser.add_argument(
+        "--radius_plot_filename",
+        default=None,
+        help="Where to output plot of plasma weighted mean radius",
+    )
+    parser.add_argument(
+        "--density_plot_filename",
+        default=None,
+        help="Where to output plot of plasma density",
     )
     parser.add_argument("--plot_styles", default=None, help="Style sheet for plots")
     return parser.parse_args()
@@ -52,7 +87,7 @@ def get_centroid(rho_slice):
             np.dot(dim_slice, np.arange(dimension_size)) / sum_rho_slice
         )
 
-    return tuple(centroid_position)
+    return tuple(centroid_position[::-1])
 
 
 def get_middle_rho_slice(rho):
@@ -63,9 +98,12 @@ def get_middle_rho_slice(rho):
     return rho[middle_slice_index]
 
 
-def plot_rho_slice(ax, rho_slice, title, extent, **params):
+def plot_rho_slice(ax, rho_slice, extent, **params):
+    """
+    Plot the given slice on the given axes with the given extent,
+    and set the plot title.
+    """
     ax.set_xlabel("$x$")
-    ax.set_title(title)
     return ax.imshow(
         rho_slice,
         origin="lower",
@@ -77,9 +115,23 @@ def plot_rho_slice(ax, rho_slice, title, extent, **params):
 
 
 def save_or_show(fig, plot_target):
+    """
+    Output the given `fig`,
+    and flush it from the buffer.
+    `plot_target` may be one of:
+
+        None: Output to the screen.
+
+        "/dev/null": Do not output, only close the fig.
+
+        Any other `str`: Output to the specified filename.
+
+        A Matplotlib backend: Output via the given backend.
+    """
     if plot_target:
         if isinstance(plot_target, str):
-            fig.savefig(plot_target)
+            if plot_target != "/dev/null":
+                fig.savefig(plot_target)
         else:
             plot_target.savefig(fig)
 
@@ -99,6 +151,10 @@ def get_cmap_norm(*slices):
 
 
 def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target):
+    """
+    Plot the two provided slices with appropriate labels,
+    side-by-side.
+    """
     cmap_norm = get_cmap_norm(rho_xy_slice, rho_xz_slice)
 
     # xy plot
@@ -109,11 +165,11 @@ def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target)
         figsize=(4.5, 2),
     )
     xy_ax.set_ylabel("$y$")
+    xy_ax.set_title(f"Step No. {step_index} – {STEP_INCREMENT_NS * step_index} ns")
 
     plot_rho_slice(
         xy_ax,
         rho_xy_slice,
-        title=f"Step No. {step_index} – {STEP_INCREMENT_NS * step_index} ns",
         extent=(-X_SIZE / 2, X_SIZE / 2, -Y_SIZE / 2, Y_SIZE / 2),
         **cmap_norm,
     )
@@ -130,10 +186,10 @@ def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target)
         (rounded_y - rho_xz_slice.shape[1] / 2) * Y_SIZE / rho_xz_slice.shape[1]
     )
 
+    xz_ax.set_title(f"$x = {slice_position} \\mathrm{{m}}$, cell = {rounded_y}")
     rho_xz_plot = plot_rho_slice(
         xz_ax,
         rho_xz_slice,
-        title=f"$x = {slice_position} \\mathrm{{m}}$, cell = {rounded_y}",
         extent=(-Z_SIZE / 2, Z_SIZE / 2, -X_SIZE / 2, X_SIZE / 2),
         **cmap_norm,
     )
@@ -143,6 +199,9 @@ def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target)
 
 
 def get_radial_means(rho_xy_slice, centroid):
+    """
+    Estimate the mean of the given slice in the centroid region.
+    """
     centroid_x, centroid_y = centroid
     ny, nx = rho_xy_slice.shape
 
@@ -163,23 +222,35 @@ def get_radial_means(rho_xy_slice, centroid):
     )
 
     filtered_distances_from_centroid = distance_from_centroid <= 2 * radial_mean
-    constrained_radial_mean = np.average(
-        distance_from_centroid[filtered_distances_from_centroid],
-        weights=rho_xy_slice[filtered_distances_from_centroid],
-    )
+    constrained_radial_mean = rho_xy_slice[filtered_distances_from_centroid].mean()
 
     return radial_mean, radial_std, constrained_radial_mean
 
 
+def coord_to_position(x, nx, lx):
+    """
+    Translate from a 0-indexed integer coordinate
+    to position on a grid of width lx and with nx points,
+    centered on the origin.
+    """
+    return (x - nx / 2) * (lx / nx)
+
+
 def process_file(h5file, plot_target=None):
+    """
+    Given a single HDF5 file,
+    compute the quantities of interest and plot slices of interest.
+    """
     step_index = get_step_index(h5file)
     rho = -h5file[f"data/{step_index}/fields/rho"][:] / constants.e
     nz, ny, nx = rho.shape
-    dx = X_SIZE / nx
-    dy = Y_SIZE / ny
 
     middle_rho_xy_slice = get_middle_rho_slice(rho)
-    centroid_x, centroid_y = get_centroid(middle_rho_xy_slice)
+    centroid_y, centroid_x = get_centroid(middle_rho_xy_slice)
+    max_rho_y, max_rho_x = np.unravel_index(
+        middle_rho_xy_slice.argmax(),
+        middle_rho_xy_slice.shape,
+    )
     centroid_rho_xz_slice = rho[:, round(centroid_y), :]
 
     # Extract some interesting parameters - density
@@ -200,11 +271,12 @@ def process_file(h5file, plot_target=None):
         middle_rho_xy_slice, (centroid_x, centroid_y)
     )
 
-    return (
+    return ResultTuple(
         step_index * STEP_INCREMENT_NS,
-        (centroid_y - ny) * dy,
-        (centroid_x - nx) * dx,
-        (centroid_x, centroid_y),
+        coord_to_position(max_rho_x, nx, X_SIZE),
+        coord_to_position(max_rho_y, ny, Y_SIZE),
+        coord_to_position(centroid_x, nx, X_SIZE),
+        coord_to_position(centroid_y, ny, Y_SIZE),
         radial_mean,
         radial_std,
         max_planar_rho,
@@ -213,20 +285,109 @@ def process_file(h5file, plot_target=None):
     )
 
 
+def get_result(results, key):
+    """
+    Return a single key from a list of result tuples.
+    """
+    return [getattr(result, key) for result in results]
+
+
+def plot_position(results, plot_filename):
+    """
+    Plot the distribution centre position for each time-step,
+    for two estimation techniques.
+    """
+    fig, ax = plt.subplots(layout="constrained")
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$y$")
+    ax.set_title("Plasma positions")
+    ax.set_xlim(-X_SIZE / 2, X_SIZE / 2)
+    ax.set_ylim(-Y_SIZE / 2, Y_SIZE / 2)
+
+    axis_colour = ax.spines["bottom"].get_edgecolor()
+    ax.axhline(0, color=axis_colour)
+    ax.axvline(0, color=axis_colour)
+
+    ax.scatter(
+        get_result(results, "max_rho_x"),
+        get_result(results, "max_rho_y"),
+        label="Maximal density",
+    )
+    ax.scatter(
+        get_result(results, "centroid_x"),
+        get_result(results, "centroid_y"),
+        label="Centre of mass",
+    )
+
+    ax.legend(loc="best", title="``Centre'' technique")
+
+    save_or_show(fig, plot_filename)
+    plt.close(fig)
+
+
+def plot_radius(results, plot_filename):
+    """
+    Plot the estimated mean radius of the plasma for each time-step.
+    """
+    fig, ax = plt.subplots(layout="constrained")
+
+    ax.set_xlabel("TOF (µs)")
+    ax.set_ylabel("Plasma weighted mean radius (mm)")
+
+    ax.scatter(get_result(results, "time"), get_result(results, "radial_mean"))
+    _, ymax = ax.get_ylim()
+    ax.set_ylim(0, ymax * 1.2)
+    ax.set_xlim(0, None)
+
+    save_or_show(fig, plot_filename)
+    plt.close(fig)
+
+
+def plot_density(results, plot_filename):
+    """
+    Plot the plasma density as a function of time-step.
+    """
+    fig, ax = plt.subplots(layout="constrained")
+
+    ax.set_yscale("log")
+    ax.set_xlabel("TOF (µs)")
+    ax.set_ylabel(r"Plasma density ($10^{13}\mathrm{m}^{-3}$)")
+
+    for key, label in [
+        ("max_planar_rho", "Maximum rho"),
+        ("mean_planar_rho", "Mean rho weighted by distance from centroid"),
+        ("constrained_radial_mean", "Mean rho within twice distribution width"),
+    ]:
+        ax.scatter(
+            get_result(results, "time"),
+            [result / 1e13 for result in get_result(results, key)],
+            label=label,
+        )
+
+    ax.legend(loc="best", title="``Technique''")
+    save_or_show(fig, plot_filename)
+    plt.close(fig)
+
+
 def main():
     args = get_args()
     if args.plot_styles:
         plt.style.use(args.plot_styles)
 
-    if args.plot_filename:
-        plot_context = PdfPages(args.plot_filename)
+    if args.frame_plots_filename:
+        plot_context = PdfPages(args.frame_plots_filename)
     else:
         plot_context = contextlib.nullcontext()
 
+    results = []
     with plot_context as plot_target:
-        for filename in args.input_files:
+        for filename in sorted(args.input_files):
             with h5py.File(filename, "r") as h5file:
-                process_file(h5file, plot_target)
+                results.append(process_file(h5file, plot_target))
+
+    plot_position(results, args.position_plot_filename)
+    plot_radius(results, args.radius_plot_filename)
+    plot_density(results, args.density_plot_filename)
 
 
 if __name__ == "__main__":
