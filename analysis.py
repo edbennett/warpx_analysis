@@ -2,8 +2,6 @@
 
 from argparse import ArgumentParser
 import contextlib
-import functools
-import logging
 
 import h5py
 import matplotlib.pyplot as plt
@@ -24,14 +22,18 @@ INNER_CIRCLE_POSITION = (0.04, 0)
 
 def get_args():
     parser = ArgumentParser(description="Analyse WarpX output without Mathematica")
-    parser.add_argument("input_files", nargs="+", metavar="input_file", help="HDF5 filename")
-    parser.add_argument("--plot_filename", default=None, help="Where to output plots of density slices")
+    parser.add_argument(
+        "input_files", nargs="+", metavar="input_file", help="HDF5 filename"
+    )
+    parser.add_argument(
+        "--plot_filename", default=None, help="Where to output plots of density slices"
+    )
     parser.add_argument("--plot_styles", default=None, help="Style sheet for plots")
     return parser.parse_args()
 
 
 def get_step_index(h5file):
-    step_index_str, = h5file["data"].keys()
+    (step_index_str,) = h5file["data"].keys()
     return int(step_index_str)
 
 
@@ -47,8 +49,7 @@ def get_centroid(rho_slice):
     for dimension_index, dimension_size in enumerate(rho_slice.shape):
         dim_slice = rho_slice.sum(axis=dimension_index)
         centroid_position.append(
-            np.dot(dim_slice, np.arange(dimension_size))
-            / sum_rho_slice
+            np.dot(dim_slice, np.arange(dimension_size)) / sum_rho_slice
         )
 
     return tuple(centroid_position)
@@ -71,7 +72,7 @@ def plot_rho_slice(ax, rho_slice, title, extent, **params):
         extent=extent,
         interpolation="gaussian",
         cmap="magma",
-        **params
+        **params,
     )
 
 
@@ -118,16 +119,16 @@ def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target)
     )
 
     for position, radius, colour in [
-            (ORIGIN, OUTER_CIRCLE_RADIUS, "red"),
-            (INNER_CIRCLE_POSITION, INNER_CIRCLE_RADIUS, "green"),
+        (ORIGIN, OUTER_CIRCLE_RADIUS, "red"),
+        (INNER_CIRCLE_POSITION, INNER_CIRCLE_RADIUS, "green"),
     ]:
         xy_ax.add_patch(plt.Circle(position, radius, color=colour, fill=False))
 
     # xz plot
     rounded_y = round(centroid_y)
     slice_position = (
-        rounded_y - rho_xz_slice.shape[1] / 2
-    ) * Y_SIZE / rho_xz_slice.shape[1]
+        (rounded_y - rho_xz_slice.shape[1] / 2) * Y_SIZE / rho_xz_slice.shape[1]
+    )
 
     rho_xz_plot = plot_rho_slice(
         xz_ax,
@@ -153,10 +154,13 @@ def get_radial_means(rho_xy_slice, centroid):
     ) ** 0.5
 
     radial_mean = np.average(distance_from_centroid, weights=rho_xy_slice)
-    radial_std = np.average(
-        (distance_from_centroid - radial_mean) ** 2,
-        weights=rho_xy_slice,
-    ) ** 0.5
+    radial_std = (
+        np.average(
+            (distance_from_centroid - radial_mean) ** 2,
+            weights=rho_xy_slice,
+        )
+        ** 0.5
+    )
 
     filtered_distances_from_centroid = distance_from_centroid <= 2 * radial_mean
     constrained_radial_mean = np.average(
@@ -196,7 +200,7 @@ def process_file(h5file, plot_target=None):
         middle_rho_xy_slice, (centroid_x, centroid_y)
     )
 
-    return(
+    return (
         step_index * STEP_INCREMENT_NS,
         (centroid_y - ny) * dy,
         (centroid_x - nx) * dx,
