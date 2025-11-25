@@ -24,7 +24,7 @@ INNER_CIRCLE_POSITION = (0.04, 0)
 
 def get_args():
     parser = ArgumentParser(description="Analyse WarpX output without Mathematica")
-    parser.add_argument("input_file", help="HDF5 filename")
+    parser.add_argument("input_files", nargs="+", metavar="input_file", help="HDF5 filename")
     parser.add_argument("--plot_filename", default=None, help="Where to output plots of density slices")
     parser.add_argument("--plot_styles", default=None, help="Style sheet for plots")
     return parser.parse_args()
@@ -105,7 +105,7 @@ def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target)
         ncols=2,
         layout="constrained",
         sharey=True,
-        figsize=(5, 2),
+        figsize=(4.5, 2),
     )
     xy_ax.set_ylabel("$y$")
 
@@ -219,9 +219,10 @@ def main():
     else:
         plot_context = contextlib.nullcontext()
 
-    with h5py.File(args.input_file, "r") as h5file:
-        with plot_context as plot_target:
-            process_file(h5file, plot_target)
+    with plot_context as plot_target:
+        for filename in args.input_files:
+            with h5py.File(filename, "r") as h5file:
+                process_file(h5file, plot_target)
 
 
 if __name__ == "__main__":
