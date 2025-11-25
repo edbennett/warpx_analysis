@@ -317,6 +317,7 @@ def plot_position(results, plot_filename):
         get_result(results, "centroid_x"),
         get_result(results, "centroid_y"),
         label="Centre of mass",
+        marker="s",
     )
 
     ax.legend(loc="best", title="``Centre'' technique")
@@ -353,15 +354,16 @@ def plot_density(results, plot_filename):
     ax.set_xlabel("TOF (µs)")
     ax.set_ylabel(r"Plasma density ($10^{13}\mathrm{m}^{-3}$)")
 
-    for key, label in [
-        ("max_planar_rho", "Maximum rho"),
-        ("mean_planar_rho", "Mean rho weighted by distance from centroid"),
-        ("constrained_radial_mean", "Mean rho within twice distribution width"),
+    for key, label, marker in [
+        ("max_planar_rho", "Maximum rho", "o"),
+        ("mean_planar_rho", "Mean rho weighted by distance from centroid", "s"),
+        ("constrained_radial_mean", "Mean rho within twice distribution width", "^"),
     ]:
         ax.scatter(
             get_result(results, "time"),
             [result / 1e13 for result in get_result(results, key)],
             label=label,
+            marker=marker,
         )
 
     ax.legend(loc="best", title="``Technique''")
