@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["warpx_analysis"]
+
+[project]
+name = "warpx_analysis"
+version = "0.0.1"
+authors = [{name="Ed Bennett", email="e.j.bennett@swansea.ac.uk"}]
+description = "Analyse very specific WarpX output."
+readme = "README.md"
+requires-python = ">= 3.13"
+license = "GPL-3.0-or-later"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "h5py",
+    "matplotlib",
+    "numpy",
+    "pypdf",
+    "scipy",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/edbennett/warpx-analysis"
+"Bug Tracker" = "https://github.com/edbennett/warpx-analysis/issues"
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__ == .__main__.:"
+]
