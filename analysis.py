@@ -3,11 +3,16 @@
 from argparse import ArgumentParser
 import contextlib
 import collections
+import glob
+import multiprocessing
+import pathlib
+import tempfile
 
 import h5py
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
+import pypdf
 from scipy import constants
 
 
@@ -62,6 +67,11 @@ def get_args():
         "--density_plot_filename",
         default=None,
         help="Where to output plot of plasma density",
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Use multiple cores for the computation",
     )
     parser.add_argument("--plot_styles", default=None, help="Style sheet for plots")
     return parser.parse_args()
@@ -165,7 +175,9 @@ def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target)
         figsize=(4.5, 2),
     )
     xy_ax.set_ylabel("$y$")
-    xy_ax.set_title(f"Step No. {step_index} – {STEP_INCREMENT_NS * step_index} ns")
+    xy_ax.set_title(
+        f"Step No. {step_index} – {round(STEP_INCREMENT_NS * step_index, 3)} ns"
+    )
 
     plot_rho_slice(
         xy_ax,
@@ -182,8 +194,9 @@ def plot_slices(rho_xy_slice, rho_xz_slice, step_index, centroid_y, plot_target)
 
     # xz plot
     rounded_y = round(centroid_y)
-    slice_position = (
-        (rounded_y - rho_xz_slice.shape[1] / 2) * Y_SIZE / rho_xz_slice.shape[1]
+    slice_position = round(
+        (rounded_y - rho_xz_slice.shape[1] / 2) * Y_SIZE / rho_xz_slice.shape[1],
+        3,
     )
 
     xz_ax.set_title(f"$x = {slice_position} \\mathrm{{m}}$, cell = {rounded_y}")
@@ -259,13 +272,14 @@ def process_file(h5file, plot_target=None):
     max_planar_rho = middle_rho_xy_slice.max()
     mean_planar_rho = middle_rho_xy_slice.mean()
 
-    plot_slices(
-        middle_rho_xy_slice,
-        centroid_rho_xz_slice,
-        step_index,
-        centroid_y,
-        plot_target,
-    )
+    if plot_target != "/dev/null":
+        plot_slices(
+            middle_rho_xy_slice,
+            centroid_rho_xz_slice,
+            step_index,
+            centroid_y,
+            plot_target,
+        )
 
     radial_mean, radial_std, constrained_radial_mean = get_radial_means(
         middle_rho_xy_slice, (centroid_x, centroid_y)
@@ -371,21 +385,74 @@ def plot_density(results, plot_filename):
     plt.close(fig)
 
 
-def main():
-    args = get_args()
-    if args.plot_styles:
-        plt.style.use(args.plot_styles)
+def process_file_wrapper(filename, plot_directory=None, plot_styles=None):
+    basename = pathlib.Path(filename).name
+    if plot_styles:
+        plt.style.use(plot_styles)
 
-    if args.frame_plots_filename:
-        plot_context = PdfPages(args.frame_plots_filename)
+    with h5py.File(filename, "r") as h5file:
+        return process_file(
+            h5file,
+            str(f"{plot_directory}/{basename}.pdf") if plot_directory else "/dev/null",
+        )
+
+
+def process_files_serial(input_files, plots_filename, **kwargs):
+    if plots_filename:
+        plot_context = PdfPages(plots_filename)
     else:
         plot_context = contextlib.nullcontext()
 
     results = []
     with plot_context as plot_target:
-        for filename in sorted(args.input_files):
+        for filename in sorted(input_files):
             with h5py.File(filename, "r") as h5file:
                 results.append(process_file(h5file, plot_target))
+
+    return results
+
+
+def merge_pdfs(input_directory, output_filename):
+    """
+    Given a directory containing one or more PDF files,
+    concatenate them into a single PDF.
+    """
+    merger = pypdf.PdfWriter()
+    for filename in sorted(glob.glob(f"{input_directory}/*.pdf")):
+        merger.append(filename)
+    merger.write(output_filename)
+
+
+def process_files_parallel(input_files, plots_filename, plot_styles):
+    if plots_filename is not None and plots_filename != "/dev/null":
+        target_directory_context = tempfile.TemporaryDirectory()
+    else:
+        target_directory_context = contextlib.nullcontext()
+
+    with target_directory_context as target_directory:
+        with multiprocessing.Pool() as pool:
+            results = pool.starmap(
+                process_file_wrapper,
+                [
+                    (filename, target_directory, plot_styles)
+                    for filename in sorted(input_files)
+                ],
+            )
+
+        if target_directory:
+            merge_pdfs(target_directory, plots_filename)
+
+    return results
+
+
+def main():
+    args = get_args()
+    if args.plot_styles:
+        plt.style.use(args.plot_styles)
+
+    results = {True: process_files_parallel, False: process_files_serial}[
+        args.parallel
+    ](args.input_files, args.frame_plots_filename, plot_styles=args.plot_styles)
 
     plot_position(results, args.position_plot_filename)
     plot_radius(results, args.radius_plot_filename)
