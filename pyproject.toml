@@ -26,8 +26,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/edbennett/warpx-analysis"
-"Bug Tracker" = "https://github.com/edbennett/warpx-analysis/issues"
+"Homepage" = "https://github.com/edbennett/warpx_analysis"
+"Bug Tracker" = "https://github.com/edbennett/warpx_analysis/issues"
 
 [tool.coverage.report]
 exclude_lines = [
