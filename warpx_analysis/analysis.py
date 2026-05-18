@@ -386,6 +386,10 @@ def plot_density(results, plot_filename):
 
 
 def process_file_wrapper(filename, plot_directory=None, plot_styles=None):
+    """
+    Wrapper for `process_file` that additionally handles the setup,
+    such that it may be parallelised with `ProcessPool.map()`.
+    """
     basename = pathlib.Path(filename).name
     if plot_styles:
         plt.style.use(plot_styles)
@@ -398,6 +402,10 @@ def process_file_wrapper(filename, plot_directory=None, plot_styles=None):
 
 
 def process_files_serial(input_files, plots_filename, **kwargs):
+    """
+    Loop over a set of input files serially,
+    allowing slice plots to be shown on screen or appended to a PdfPages object.
+    """
     if plots_filename:
         plot_context = PdfPages(plots_filename)
     else:
@@ -424,6 +432,13 @@ def merge_pdfs(input_directory, output_filename):
 
 
 def process_files_parallel(input_files, plots_filename, plot_styles):
+    """
+    Loop over a set of input files using a ProcessPool.
+    Slice plots will either be written to disk, or suppressed entirely.
+
+    Since PdfPages can't be shared among a ProcessPool,
+    each slice is output to a separate file and concatenated after the fact.
+    """
     if plots_filename is not None and plots_filename != "/dev/null":
         target_directory_context = tempfile.TemporaryDirectory()
     else:
@@ -431,6 +446,11 @@ def process_files_parallel(input_files, plots_filename, plot_styles):
 
     with target_directory_context as target_directory:
         with multiprocessing.Pool() as pool:
+            # While `target_directory` and `plot_styles`
+            # are the same for ecah iteration,
+            # they must be passed separately,
+            # as `ProcessPool` cannot accept
+            # lambdas, closures, or other functions const
             results = pool.starmap(
                 process_file_wrapper,
                 [
