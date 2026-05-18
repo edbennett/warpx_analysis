@@ -2,8 +2,8 @@
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-py-modules = ["warpx_analysis"]
+[tool.setuptools.packages]
+find = {}
 
 [project]
 name = "warpx_analysis"
