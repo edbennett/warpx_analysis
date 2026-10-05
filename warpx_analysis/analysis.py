@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 
-from argparse import ArgumentParser
-import contextlib
 import collections
+import contextlib
 import glob
 import multiprocessing
 import pathlib
 import tempfile
+from argparse import ArgumentParser
 
 import h5py
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import pypdf
+from matplotlib.backends.backend_pdf import PdfPages
 from scipy import constants
-
 
 STEP_INCREMENT_NS = 0.2
 X_SIZE = 0.12
